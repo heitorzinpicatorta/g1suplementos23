@@ -275,9 +275,9 @@ app.post("/api/webhook", async (req, res) => {
 });
 
 // ─── Start ─────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT_SERVER || 3001;
-app.listen(PORT, () => {
-  console.log(`✅  Backend rodando em http://localhost:${PORT}`);
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅  Backend rodando em http://0.0.0.0:${PORT}`);
   console.log(`   Admin    → POST /api/admin/login`);
   console.log(`   Checkout → POST /api/checkout`);
   console.log(`   PIX      → POST /api/pix`);
