@@ -34,7 +34,7 @@ if (!ADMIN_USER || !ADMIN_PASS) console.warn("⚠️  AVISO: Credenciais ADMIN n
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const STORE_NAME   = process.env.STORE_NAME   || "G1 Suplementos";
 
-// ─── Express ──────────────────────────────────────────────────────────────
+// ─── Express ────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
@@ -221,12 +221,12 @@ app.post("/api/webhook", async (req, res) => {
   return res.sendStatus(200);
 });
 
-// ─── 404 Handler ──────────────────────────────────────────────────────────
+// ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ error: "Rota não encontrada" });
 });
 
-// ─── Error Handler ────────────────────────────────────────────────────────
+// ─── Error Handler ──────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error("❌ Erro não tratado:", err);
   res.status(err.status || 500).json({ 
@@ -234,22 +234,27 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// ─── Start (Otimizado para Railway) ───────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Backend ON na porta ${PORT}`);
-  console.log(`   🏥 Health check: GET /health`);
-  console.log(`   💳 PIX:          POST /api/pix`);
-  console.log(`   🛒 Checkout:     POST /api/checkout`);
-  console.log(`   📊 Status:       GET /api/payment/:id`);
-  console.log(`   🔔 Webhook:      POST /api/webhook`);
+// ─── Start (Otimizado para Railway) ─────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+const HOST = "0.0.0.0";
+const server = app.listen(PORT, HOST, () => {
+  console.log(`\n🚀 ═══════════════════════════════════════════════════════════════`);
+  console.log(`✅ Backend G1 Suplementos ONLINE!`);
+  console.log(`📍 Rodando em: ${HOST}:${PORT}`);
+  console.log(`🏥 Health check: GET /health`);
+  console.log(`💳 PIX:          POST /api/pix`);
+  console.log(`🛒 Checkout:     POST /api/checkout`);
+  console.log(`📊 Status:       GET /api/payment/:id`);
+  console.log(`🔔 Webhook:      POST /api/webhook`);
+  console.log(`🌍 Frontend URL: ${FRONTEND_URL}`);
+  console.log(`═══════════════════════════════════════════════════════════════\n`);
 });
 
-// ─── Graceful Shutdown (Importante para Railway) ──────────────────────────
+// ─── Graceful Shutdown (Importante para Railway) ────────────────────────────
 process.on("SIGTERM", () => {
-  console.log("📭 SIGTERM recebido, encerrando gracefully...");
+  console.log("\n📭 SIGTERM recebido, encerrando gracefully...");
   server.close(() => {
-    console.log("✅ Servidor encerrado");
+    console.log("✅ Servidor encerrado com sucesso");
     process.exit(0);
   });
   // Force exit após 10s
@@ -260,9 +265,9 @@ process.on("SIGTERM", () => {
 });
 
 process.on("SIGINT", () => {
-  console.log("📭 SIGINT recebido, encerrando gracefully...");
+  console.log("\n📭 SIGINT recebido, encerrando gracefully...");
   server.close(() => {
-    console.log("✅ Servidor encerrado");
+    console.log("✅ Servidor encerrado com sucesso");
     process.exit(0);
   });
 });
