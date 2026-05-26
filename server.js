@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 import crypto from "crypto";
+import http from "http";
 
 // ─── Carregar .env manualmente (Apenas para rodar local) ──────────────────
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,14 +27,14 @@ const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const ADMIN_USER = process.env.ADMIN_USER;
 const ADMIN_PASS = process.env.ADMIN_PASS;
 
-// Log de aviso mas sem travar o boot imediatamente (ajuda a ver o erro no log do Railway)
-if (!MP_ACCESS_TOKEN) console.error("⚠️ AVISO: MP_ACCESS_TOKEN não encontrado nas variáveis.");
-if (!ADMIN_USER || !ADMIN_PASS) console.error("⚠️ AVISO: Credenciais ADMIN não configuradas.");
+// Log de aviso mas sem travar o boot imediatamente
+if (!MP_ACCESS_TOKEN) console.warn("⚠️  AVISO: MP_ACCESS_TOKEN não encontrado nas variáveis de ambiente.");
+if (!ADMIN_USER || !ADMIN_PASS) console.warn("⚠️  AVISO: Credenciais ADMIN não configuradas.");
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const STORE_NAME   = process.env.STORE_NAME   || "G1 Suplementos";
 
-// ─── Express ───────────────────────────────────────────────────────────────
+// ─── Express ──────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
@@ -63,15 +64,28 @@ async function mpFetch(path, method = "GET", body = null) {
   return data;
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// Health check (Essencial para o Railway saber que o app está vivo)
-// ══════════════════════════════════════════════════════════════════════════
-app.get("/api/healthz", (_req, res) => res.json({ ok: true }));
-app.get("/", (_req, res) => res.send("Backend G1 Suplementos Online 🚀"));
+// ════════════════════════════════════════════════════════════════════════════
+// Health checks — CRÍTICO para Railway
+// ════════════════════════════════════════════════════════════════════════════
 
-// ══════════════════════════════════════════════════════════════════════════
+// GET /health — Usado pelo Railway e Docker HEALTHCHECK
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+// GET /api/healthz — Endpoint adicional para compatibilidade
+app.get("/api/healthz", (_req, res) => res.json({ ok: true }));
+
+// GET / — Raiz da API
+app.get("/", (_req, res) => res.send("✅ Backend G1 Suplementos Online 🚀"));
+
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA: Login admin
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/admin/login", (req, res) => {
   const { user, pass } = req.body ?? {};
   if (user === ADMIN_USER && pass === ADMIN_PASS) {
@@ -80,9 +94,9 @@ app.post("/api/admin/login", (req, res) => {
   setTimeout(() => res.status(401).json({ error: "Credenciais inválidas." }), 400);
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA: Checkout Pro (Preference)
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/checkout", async (req, res) => {
   try {
     const { items, payer, address } = req.body;
@@ -140,13 +154,14 @@ app.post("/api/checkout", async (req, res) => {
       initPoint:        data.init_point,
     });
   } catch (err) {
+    console.error("Erro ao criar checkout:", err.message);
     res.status(err.status || 500).json({ error: err.message || "Erro interno do servidor." });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA: Gerar pagamento PIX
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/pix", async (req, res) => {
   const { amount, description, payer } = req.body;
   if (!amount || !payer?.email) {
@@ -175,18 +190,20 @@ app.post("/api/pix", async (req, res) => {
       expiresAt:    result.date_of_expiration,
     });
   } catch (err) {
+    console.error("Erro ao gerar PIX:", err.message);
     return res.status(err.status || 500).json({ error: err.message || "Erro interno ao gerar PIX" });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // Outras rotas (Status e Webhook)
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.get("/api/payment/:id", async (req, res) => {
   try {
     const result = await mpFetch(`/v1/payments/${req.params.id}`);
     return res.json({ id: result.id, status: result.status, amount: result.transaction_amount });
   } catch (err) {
+    console.error("Erro ao buscar pagamento:", err.message);
     return res.status(err.status || 500).json({ error: err.message });
   }
 });
@@ -198,14 +215,65 @@ app.post("/api/webhook", async (req, res) => {
       const result = await mpFetch(`/v1/payments/${data.id}`);
       console.log(`📦 Pagamento ${result.id} → status: ${result.status}`);
     } catch (err) {
-      console.error("Erro no webhook:", err);
+      console.error("Erro no webhook:", err.message);
     }
   }
   return res.sendStatus(200);
 });
 
-// ─── Start (Ajustado para o Railway) ───────────────────────────────────────
-const PORT = process.env.PORT || 3001; // Railway usa process.env.PORT automaticamente
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Backend ON na porta ${PORT} (bind 0.0.0.0)`);
+// ─── 404 Handler ──────────────────────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ error: "Rota não encontrada" });
+});
+
+// ─── Error Handler ────────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error("❌ Erro não tratado:", err);
+  res.status(err.status || 500).json({ 
+    error: err.message || "Erro interno do servidor" 
+  });
+});
+
+// ─── Start (Otimizado para Railway) ───────────────────────────────────────
+const PORT = process.env.PORT || 3001;
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Backend ON na porta ${PORT}`);
+  console.log(`   🏥 Health check: GET /health`);
+  console.log(`   💳 PIX:          POST /api/pix`);
+  console.log(`   🛒 Checkout:     POST /api/checkout`);
+  console.log(`   📊 Status:       GET /api/payment/:id`);
+  console.log(`   🔔 Webhook:      POST /api/webhook`);
+});
+
+// ─── Graceful Shutdown (Importante para Railway) ──────────────────────────
+process.on("SIGTERM", () => {
+  console.log("📭 SIGTERM recebido, encerrando gracefully...");
+  server.close(() => {
+    console.log("✅ Servidor encerrado");
+    process.exit(0);
+  });
+  // Force exit após 10s
+  setTimeout(() => {
+    console.error("❌ Timeout no graceful shutdown, forçando saída");
+    process.exit(1);
+  }, 10000);
+});
+
+process.on("SIGINT", () => {
+  console.log("📭 SIGINT recebido, encerrando gracefully...");
+  server.close(() => {
+    console.log("✅ Servidor encerrado");
+    process.exit(0);
+  });
+});
+
+// ─── Tratamento de exceções não capturadas ──────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("❌ Exceção não capturada:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ Promise rejection não tratada:", reason);
+  process.exit(1);
 });
