@@ -1,0 +1,19 @@
+# Dependências
+node_modules/
+files/backend-mp/node_modules/
+
+# Variáveis de ambiente — NUNCA suba isso
+.env
+.env.local
+.env.production
+
+# Build do Vite
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
