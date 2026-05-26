@@ -1,13 +1,14 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 
 dotenv.config();
 
 // ─── Validação das variáveis de ambiente ───────────────────────────────────
 if (!process.env.MP_ACCESS_TOKEN) {
-  console.error("❌  MP_ACCESS_TOKEN não encontrado no .env");
+  console.error("❌ MP_ACCESS_TOKEN não encontrado no .env");
   process.exit(1);
 }
 
@@ -20,7 +21,7 @@ const mpClient = new MercadoPagoConfig({
 const payment = new Payment(mpClient);
 const preference = new Preference(mpClient);
 
-// ─── Express ───────────────────────────────────────────────────────────────
+// ─── Express ────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 
@@ -32,11 +33,32 @@ app.use(
   })
 );
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+// Health checks — CRÍTICO para Railway
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /health — Usado pelo Railway
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+// GET / — Raiz da API
+app.get("/", (_req, res) => {
+  res.status(200).json({ 
+    message: "✅ Backend Mercado Pago API Online",
+    version: "1.0.0"
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA 1 — Gerar pagamento PIX
 // Body esperado:
 //   { amount: number, description: string, payer: { email, firstName, lastName, cpf } }
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/pix", async (req, res) => {
   const { amount, description, payer } = req.body;
 
@@ -75,18 +97,18 @@ app.post("/api/pix", async (req, res) => {
       expiresAt: result.date_of_expiration,
     });
   } catch (err) {
-    console.error("Erro ao criar PIX:", err);
+    console.error("❌ Erro ao criar PIX:", err);
     return res
       .status(500)
       .json({ error: err?.message || "Erro interno ao gerar PIX" });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA 2 — Gerar Preference (Checkout Pro / redirect)
 // Body esperado:
 //   { items: [{ title, quantity, unit_price }], payer: { email } }
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/checkout", async (req, res) => {
   const { items, payer } = req.body;
 
@@ -124,16 +146,16 @@ app.post("/api/checkout", async (req, res) => {
       sandboxInitPoint: result.sandbox_init_point, // URL de redirect (sandbox)
     });
   } catch (err) {
-    console.error("Erro ao criar preference:", err);
+    console.error("❌ Erro ao criar preference:", err);
     return res
       .status(500)
       .json({ error: err?.message || "Erro interno ao criar checkout" });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA 3 — Consultar status de um pagamento
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.get("/api/payment/:id", async (req, res) => {
   try {
     const result = await payment.get({ id: req.params.id });
@@ -144,14 +166,15 @@ app.get("/api/payment/:id", async (req, res) => {
       amount: result.transaction_amount,
     });
   } catch (err) {
+    console.error("❌ Erro ao buscar pagamento:", err.message);
     return res.status(500).json({ error: err?.message });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ROTA 4 — Webhook (Mercado Pago notifica aqui quando o pagamento muda)
 // Configure em: https://www.mercadopago.com.br/developers/panel/webhooks
-// ══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 app.post("/api/webhook", async (req, res) => {
   const { type, data } = req.body;
 
@@ -163,7 +186,7 @@ app.post("/api/webhook", async (req, res) => {
       );
       // TODO: atualize seu banco de dados aqui
     } catch (err) {
-      console.error("Erro no webhook:", err);
+      console.error("❌ Erro no webhook:", err);
     }
   }
 
@@ -171,12 +194,63 @@ app.post("/api/webhook", async (req, res) => {
   return res.sendStatus(200);
 });
 
-// ─── Start ─────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`✅  Backend rodando em http://localhost:${PORT}`);
-  console.log(`   PIX      → POST /api/pix`);
-  console.log(`   Checkout → POST /api/checkout`);
-  console.log(`   Status   → GET  /api/payment/:id`);
-  console.log(`   Webhook  → POST /api/webhook`);
+// ─── 404 Handler ────────────────────────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ error: "Rota não encontrada" });
+});
+
+// ─── Error Handler ──────────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error("❌ Erro não tratado:", err);
+  res.status(err.status || 500).json({ 
+    error: err.message || "Erro interno do servidor" 
+  });
+});
+
+// ─── Start (Otimizado para Railway) ─────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+const HOST = "0.0.0.0";
+const server = app.listen(PORT, HOST, () => {
+  console.log(`\n🚀 ═══════════════════════════════════════════════════════════════`);
+  console.log(`✅ Backend Mercado Pago ONLINE!`);
+  console.log(`📍 Rodando em: ${HOST}:${PORT}`);
+  console.log(`🏥 Health check: GET /health`);
+  console.log(`💳 PIX:          POST /api/pix`);
+  console.log(`🛒 Checkout:     POST /api/checkout`);
+  console.log(`📊 Status:       GET  /api/payment/:id`);
+  console.log(`🔔 Webhook:      POST /api/webhook`);
+  console.log(`═══════════════════════════════════════════════════════════════\n`);
+});
+
+// ─── Graceful Shutdown (Importante para Railway) ────────────────────────────
+process.on("SIGTERM", () => {
+  console.log("\n📭 SIGTERM recebido, encerrando gracefully...");
+  server.close(() => {
+    console.log("✅ Servidor encerrado com sucesso");
+    process.exit(0);
+  });
+  // Force exit após 10s
+  setTimeout(() => {
+    console.error("❌ Timeout no graceful shutdown, forçando saída");
+    process.exit(1);
+  }, 10000);
+});
+
+process.on("SIGINT", () => {
+  console.log("\n📭 SIGINT recebido, encerrando gracefully...");
+  server.close(() => {
+    console.log("✅ Servidor encerrado com sucesso");
+    process.exit(0);
+  });
+});
+
+// ─── Tratamento de exceções não capturadas ──────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("❌ Exceção não capturada:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ Promise rejection não tratada:", reason);
+  process.exit(1);
 });
